@@ -1,0 +1,6 @@
+{
+  "name": "Simple Attendance Tracker",
+  "description": "A modern digital attendance management system for schools and institutes with roles for Admin, Teacher, and Student.",
+  "requestFramePermissions": [],
+  "majorCapabilities": []
+}

@@ -1,0 +1,89 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 0. Default Deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // --- Helpers ---
+    function isSignedIn() { return request.auth != null; }
+    function isOwner(userId) { return isSignedIn() && request.auth.uid == userId; }
+    function getUserData(userId) { return get(/databases/$(database)/documents/users/$(userId)).data; }
+    function isAdmin() { return isSignedIn() && getUserData(request.auth.uid).role == 'admin'; }
+    function isTeacher() { return isSignedIn() && getUserData(request.auth.uid).role == 'teacher'; }
+    function isStudent() { return isSignedIn() && getUserData(request.auth.uid).role == 'student'; }
+    function isValidId(id) { return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$'); }
+    function incoming() { return request.resource.data; }
+    function existing() { return resource.data; }
+
+    // --- Validation Helpers ---
+    function isValidUser(data) {
+      return data.keys().hasAll(['name', 'email', 'role']) && 
+             data.keys().size() <= 5 && // name, email, role, createdAt + leeway
+             data.name is string && data.name.size() < 100 &&
+             data.email is string && data.email.size() < 100 &&
+             data.role in ['admin', 'teacher', 'student'];
+    }
+
+    function isValidClass(data) {
+      return data.keys().hasAll(['name', 'subject', 'teacherId']) &&
+             data.name is string && data.name.size() < 100 &&
+             data.subject is string && data.subject.size() < 100 &&
+             isValidId(data.teacherId);
+    }
+
+    function isValidAttendance(data) {
+      return data.keys().hasAll(['studentId', 'classId', 'date', 'status']) &&
+             isValidId(data.studentId) &&
+             isValidId(data.classId) &&
+             data.date is string &&
+             data.status in ['present', 'absent'];
+    }
+
+    // --- Match Rules ---
+
+    // USERS
+    match /users/{userId} {
+      allow read: if isSignedIn(); // Basic profiles visible (e.g. searching students)
+      allow create: if isSignedIn() && (isAdmin() || userId == request.auth.uid);
+      allow update: if isAdmin() || (isOwner(userId) && incoming().role == existing().role); // Own profile but can't change role
+      allow delete: if isAdmin();
+    }
+
+    // STUDENTS
+    match /students/{studentId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
+    // TEACHERS
+    match /teachers/{teacherId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
+    // CLASSES
+    match /classes/{classId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
+    // ATTENDANCE
+    match /attendance/{attendanceId} {
+      allow read: if isAdmin() || isTeacher() || (isStudent() && existing().studentId == request.auth.uid);
+      allow list: if isAdmin() || isTeacher() || (isStudent() && resource.data.studentId == request.auth.uid);
+      
+      allow create: if (isAdmin() || isTeacher()) && isValidAttendance(incoming());
+      allow update: if (isAdmin() || isTeacher()) && isValidAttendance(incoming());
+      allow delete: if isAdmin();
+    }
+    
+    // SYSTEM META
+    match /system/{docId} {
+      allow read: if true;
+      allow write: if true; // Only for first initialization
+    }
+  }
+}

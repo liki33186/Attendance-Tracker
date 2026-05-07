@@ -1,0 +1,82 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "Base user account profile",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "email": { "type": "string", "format": "email" },
+        "role": { "type": "string", "enum": ["admin", "teacher", "student"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["name", "email", "role"]
+    },
+    "Student": {
+      "title": "Student",
+      "description": "Student-specific details linked to a User",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "department": { "type": "string" },
+        "semester": { "type": "string" }
+      },
+      "required": ["userId", "department", "semester"]
+    },
+    "Teacher": {
+      "title": "Teacher",
+      "description": "Teacher-specific details linked to a User",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "subject": { "type": "string" }
+      },
+      "required": ["userId", "subject"]
+    },
+    "Class": {
+      "title": "Class",
+      "description": "A class or group of students for a subject",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "subject": { "type": "string" },
+        "teacherId": { "type": "string" }
+      },
+      "required": ["name", "subject", "teacherId"]
+    },
+    "Attendance": {
+      "title": "Attendance",
+      "description": "Daily attendance record for a student in a class",
+      "type": "object",
+      "properties": {
+        "studentId": { "type": "string" },
+        "classId": { "type": "string" },
+        "date": { "type": "string", "format": "date" },
+        "status": { "type": "string", "enum": ["present", "absent"] }
+      },
+      "required": ["studentId", "classId", "date", "status"]
+    }
+  },
+  "firestore": {
+    "users": {
+      "schema": "User",
+      "description": "Root collection for all users"
+    },
+    "students": {
+      "schema": "Student",
+      "description": "Student details linked by userId and documentId"
+    },
+    "teachers": {
+      "schema": "Teacher",
+      "description": "Teacher details linked by userId and documentId"
+    },
+    "classes": {
+      "schema": "Class",
+      "description": "Definitions of classes"
+    },
+    "attendance": {
+      "schema": "Attendance",
+      "description": "Logs of student attendance"
+    }
+  }
+}
