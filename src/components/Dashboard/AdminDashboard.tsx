@@ -1,10 +1,11 @@
-import { useEffect, useState } from 'react';
-import { collection, getDocs, addDoc, serverTimestamp, setDoc, doc } from 'firebase/firestore';
+import { useEffect, useState, useRef } from 'react';
+import { collection, onSnapshot, addDoc, serverTimestamp, setDoc, doc } from 'firebase/firestore';
 import { db } from '../../lib/firebase';
-import { Users, UserSquare2, BookOpen, CalendarCheck, TrendingUp, TrendingDown } from 'lucide-react';
+import { Users, UserSquare2, BookOpen, CalendarCheck, TrendingUp, TrendingDown, Bell } from 'lucide-react';
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area 
 } from 'recharts';
+import { animate, motion, AnimatePresence } from 'motion/react';
 
 export default function AdminDashboard() {
   const [isMounted, setIsMounted] = useState(false);
@@ -15,21 +16,91 @@ export default function AdminDashboard() {
     attendanceToday: 0
   });
 
+  const [subjectStats, setSubjectStats] = useState<any[]>([]);
+  const [notification, setNotification] = useState<string | null>(null);
+  const prevSubjectIds = useRef<Set<string>>(new Set());
+
   useEffect(() => {
-    const fetchStats = async () => {
-      const studentsSnap = await getDocs(collection(db, 'students'));
-      const teachersSnap = await getDocs(collection(db, 'teachers'));
-      const classesSnap = await getDocs(collection(db, 'classes'));
-      
-      setStats({
-        students: studentsSnap.size,
-        teachers: teachersSnap.size,
-        classes: classesSnap.size,
-        attendanceToday: 85 // Mock stat for now
-      });
-    };
-    fetchStats();
     setIsMounted(true);
+
+    // Real-time listeners
+    const unsubStudents = onSnapshot(collection(db, 'students'), (snap) => {
+      setStats(prev => ({ ...prev, students: snap.size }));
+    });
+
+    const unsubTeachers = onSnapshot(collection(db, 'teachers'), (snap) => {
+      setStats(prev => ({ ...prev, teachers: snap.size }));
+    });
+
+    const unsubClasses = onSnapshot(collection(db, 'classes'), (snap) => {
+      setStats(prev => ({ ...prev, classes: snap.size }));
+    });
+
+    const unsubAttendance = onSnapshot(collection(db, 'attendance'), (attSnap) => {
+      // Need classes for names
+      const unsubClassesForNames = onSnapshot(collection(db, 'classes'), (classesSnap) => {
+        const classes = classesSnap.docs.reduce((acc: any, d) => {
+          acc[d.id] = d.data().name;
+          return acc;
+        }, {});
+
+        const currentSubjectIds = new Set(Object.keys(classes));
+        
+        // Detect new subjects
+        if (prevSubjectIds.current.size > 0) {
+          const added = Array.from(currentSubjectIds).filter(id => !prevSubjectIds.current.has(id));
+          if (added.length > 0) {
+            const newNames = added.map(id => classes[id]).join(', ');
+            setNotification(`New subject added: ${newNames}`);
+            setTimeout(() => setNotification(null), 5000);
+          }
+        }
+        prevSubjectIds.current = currentSubjectIds;
+
+        let totalPresent = 0;
+        let totalRecords = 0;
+
+        const attendanceMap = Object.values(classes).reduce((acc: any, name: any) => {
+          acc[name] = { present: 0, total: 0 };
+          return acc;
+        }, {});
+
+        attSnap.docs.forEach((d) => {
+          const data = d.data();
+          const className = classes[data.classId];
+          if (!className) return;
+
+          attendanceMap[className].total += 1;
+          totalRecords += 1;
+          if (data.status === 'present') {
+            attendanceMap[className].present += 1;
+            totalPresent += 1;
+          }
+        });
+
+        setStats(prev => ({
+          ...prev,
+          attendanceToday: totalRecords > 0 ? Number(((totalPresent / totalRecords) * 100).toFixed(1)) : 0
+        }));
+
+        const list = Object.entries(attendanceMap).map(([name, data]: [string, any]) => ({
+          name,
+          percentage: data.total > 0 ? Number(((data.present / data.total) * 100).toFixed(1)) : 0,
+          color: ['bg-blue-500', 'bg-emerald-500', 'bg-indigo-500', 'bg-violet-500', 'bg-amber-500'][Math.floor(Math.random() * 5)]
+        }));
+        
+        setSubjectStats(list);
+      });
+
+      return () => unsubClassesForNames();
+    });
+
+    return () => {
+      unsubStudents();
+      unsubTeachers();
+      unsubClasses();
+      unsubAttendance();
+    };
   }, []);
 
   const chartData = [
@@ -76,11 +147,28 @@ export default function AdminDashboard() {
 
   return (
     <div className="space-y-8">
-      <div className="flex justify-between items-center">
+      <div className="flex justify-between items-center relative">
         <div>
           <h2 className="text-2xl font-black text-slate-800 tracking-tight">Executive Dashboard</h2>
           <p className="text-slate-400 text-sm font-medium">Monitoring institute activities in real-time</p>
         </div>
+        
+        <AnimatePresence>
+          {notification && (
+            <motion.div 
+              initial={{ opacity: 0, y: -20, scale: 0.9 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: -20, scale: 0.9 }}
+              className="absolute top-0 right-48 flex items-center gap-3 px-6 py-3 bg-emerald-500 text-white rounded-2xl shadow-xl shadow-emerald-100 z-50"
+            >
+              <div className="w-8 h-8 bg-white/20 rounded-lg flex items-center justify-center animate-pulse">
+                <Bell size={18} />
+              </div>
+              <span className="text-sm font-bold">{notification}</span>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
         <button 
           onClick={seedData}
           className="text-[10px] font-bold text-slate-400 border border-slate-200 px-4 py-2 rounded-xl hover:bg-slate-100 transition-all uppercase tracking-widest"
@@ -163,11 +251,34 @@ export default function AdminDashboard() {
         <div className="bg-white p-8 rounded-3xl border border-slate-100 shadow-sm">
           <h3 className="text-lg font-bold text-slate-900 mb-6">Subject Statistics</h3>
           <div className="space-y-6">
-            <SubjectProgress name="Mathematics" percentage={82} color="bg-blue-500" />
-            <SubjectProgress name="Physics" percentage={75} color="bg-indigo-500" />
-            <SubjectProgress name="Computer Science" percentage={94} color="bg-emerald-500" />
-            <SubjectProgress name="English" percentage={68} color="bg-amber-500" />
-            <SubjectProgress name="History" percentage={88} color="bg-violet-500" />
+            <AnimatePresence mode="popLayout">
+              {subjectStats.length === 0 ? (
+                <motion.p 
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  className="text-slate-400 text-sm italic"
+                >
+                  No attendance data available
+                </motion.p>
+              ) : (
+                subjectStats.map((sub, i) => (
+                  <motion.div 
+                    key={sub.name}
+                    initial={{ opacity: 0, x: -20 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    layout
+                    transition={{ 
+                      type: "spring",
+                      stiffness: 300,
+                      damping: 30,
+                      delay: i * 0.05 
+                    }}
+                  >
+                    <SubjectProgress name={sub.name} percentage={sub.percentage} color={sub.color} />
+                  </motion.div>
+                ))
+              )}
+            </AnimatePresence>
           </div>
         </div>
       </div>

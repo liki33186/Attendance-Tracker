@@ -53,14 +53,17 @@ export default function Attendance() {
       } else if (user.role === 'student') {
         const q = query(collection(db, 'attendance'), where('studentId', '==', user.id));
         const snap = await getDocs(q);
-        setHistory(snap.docs.map(doc => {
+        const historyData = snap.docs.map(doc => {
           const data = doc.data();
+          const cls = classesMap[data.classId];
+          if (!cls) return null;
           return { 
             id: doc.id, 
             ...data,
-            className: classesMap[data.classId]?.name || 'Unknown Class'
+            className: cls.name
           };
-        }));
+        }).filter(Boolean);
+        setHistory(historyData);
       } else {
         const snap = await getDocs(collection(db, 'classes'));
         classBatch = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
@@ -184,7 +187,7 @@ export default function Attendance() {
           </h3>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             {Object.values(subjectSummary).map((sub: any, i) => {
-              const perc = Math.round((sub.present / sub.total) * 100);
+              const perc = Number(((sub.present / sub.total) * 100).toFixed(1));
               return (
                 <div key={i} className="p-5 bg-slate-50 rounded-2xl border border-slate-100">
                   <div className="flex justify-between items-start mb-4">

@@ -41,5 +41,10 @@ export function handleFirestoreError(error: unknown, operationType: OperationTyp
     path
   };
   console.error('Firestore Error: ', JSON.stringify(errInfo));
+  
+  // Show user-friendly alert
+  const message = error instanceof Error ? error.message : 'Unknown Firestore error';
+  alert(`Security Rule Violation or Database Error:\n\nOperation: ${operationType}\nPath: ${path}\nError: ${message}\n\nPlease check your security rules if this was unexpected.`);
+  
   throw new Error(JSON.stringify(errInfo));
 }

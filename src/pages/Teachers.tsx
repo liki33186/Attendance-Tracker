@@ -1,10 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { collection, query, where, getDocs, addDoc, serverTimestamp, setDoc, doc, deleteDoc, updateDoc } from 'firebase/firestore';
-import { db } from '../lib/firebase';
+import { collection, query, where, getDocs, addDoc, serverTimestamp, setDoc, doc, deleteDoc, updateDoc, writeBatch } from 'firebase/firestore';
+import { db, handleFirestoreError, OperationType } from '../lib/firebase';
+import { useAuth } from '../hooks/useAuth';
 import { Search, Plus, UserSquare2, Mail, BookOpen, Loader2, Trash2, Calendar, ShieldCheck } from 'lucide-react';
 import Modal from '../components/Modal';
 
 export default function Teachers() {
+  const { user: currentUser } = useAuth();
   const [teachers, setTeachers] = useState<any[]>([]);
   const [classes, setClasses] = useState<any[]>([]);
   const [search, setSearch] = useState('');
@@ -15,6 +17,7 @@ export default function Teachers() {
   const [selectedTeacher, setSelectedTeacher] = useState<any>(null);
   const [targetClassId, setTargetClassId] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const [addFormData, setAddFormData] = useState({
     name: '',
     email: '',
@@ -109,15 +112,29 @@ export default function Teachers() {
   };
 
   const handleDeleteTeacher = async (teacherId: string) => {
-    if (!window.confirm('Are you sure you want to remove this faculty record?')) return;
-    
+    setSubmitting(true);
     try {
-      await deleteDoc(doc(db, 'users', teacherId));
-      await deleteDoc(doc(db, 'teachers', teacherId));
+      const batch = writeBatch(db);
+      
+      batch.delete(doc(db, 'users', teacherId));
+      batch.delete(doc(db, 'teachers', teacherId));
+      
+      // Unassign teacher from any classes
+      const classQ = query(collection(db, 'classes'), where('teacherId', '==', teacherId));
+      const classSnap = await getDocs(classQ);
+      classSnap.docs.forEach(d => {
+        batch.update(d.ref, { teacherId: '' });
+      });
+      
+      await batch.commit();
+      setDeleteConfirmId(null);
       fetchTeachers();
-    } catch (err) {
-      console.error(err);
-      alert('Failed to delete teacher.');
+      fetchClasses();
+    } catch (err: any) {
+      console.error('Delete error:', err);
+      handleFirestoreError(err, OperationType.DELETE, `users/${teacherId}`);
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -167,13 +184,44 @@ export default function Teachers() {
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {filteredTeachers.map((teacher) => (
-            <div key={teacher.id} className="bg-white rounded-3xl border border-slate-100 shadow-sm p-8 hover:shadow-md transition-shadow group">
+            <div key={teacher.id} className="bg-white rounded-3xl border border-slate-100 shadow-sm p-8 hover:shadow-md transition-shadow group relative">
               <div className="flex items-start justify-between mb-6">
                 <div className="w-16 h-16 bg-blue-50 text-blue-600 rounded-2xl flex items-center justify-center transition-transform group-hover:scale-110">
                   <UserSquare2 size={32} />
                 </div>
-                <div className="bg-emerald-50 text-emerald-600 px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest">
-                  Active
+                <div className="flex items-center gap-2">
+                  {currentUser?.role === 'admin' && (
+                    <div className="flex items-center gap-1">
+                      {deleteConfirmId === teacher.id ? (
+                        <div className="flex items-center gap-1 animate-in fade-in slide-in-from-right-2 bg-white p-1 rounded-xl shadow-sm border border-slate-100">
+                          <button 
+                            onClick={(e) => { e.stopPropagation(); handleDeleteTeacher(teacher.id); }}
+                            disabled={submitting}
+                            className="px-2 py-1 bg-red-600 text-white text-[10px] font-bold rounded-lg hover:bg-red-700 transition-colors"
+                          >
+                            Confirm
+                          </button>
+                          <button 
+                            onClick={(e) => { e.stopPropagation(); setDeleteConfirmId(null); }}
+                            className="px-2 py-1 bg-slate-200 text-slate-600 text-[10px] font-bold rounded-lg hover:bg-slate-300 transition-colors"
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      ) : (
+                        <button 
+                          onClick={(e) => { e.stopPropagation(); setDeleteConfirmId(teacher.id); }}
+                          disabled={submitting}
+                          className="p-2 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-xl transition-all opacity-0 group-hover:opacity-100 disabled:opacity-0"
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      )}
+                    </div>
+                  )}
+                  <div className="bg-emerald-50 text-emerald-600 px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest">
+                    Active
+                  </div>
                 </div>
               </div>
               
@@ -300,16 +348,19 @@ export default function Teachers() {
               </div>
             </div>
 
-            <button 
-              onClick={() => {
-                handleDeleteTeacher(selectedTeacher.id);
-                setIsProfileModalOpen(false);
-              }}
-              className="w-full flex items-center justify-center gap-2 py-4 text-sm font-bold text-red-600 bg-red-50 rounded-2xl hover:bg-red-100 transition-all"
-            >
-              <Trash2 size={18} />
-              Remove from Faculty
-            </button>
+            {currentUser?.role === 'admin' && (
+              <button 
+                onClick={() => {
+                  handleDeleteTeacher(selectedTeacher.id);
+                  setIsProfileModalOpen(false);
+                }}
+                disabled={submitting}
+                className="w-full flex items-center justify-center gap-2 py-4 text-sm font-bold text-red-600 bg-red-50 rounded-2xl hover:bg-red-100 transition-all disabled:opacity-50"
+              >
+                <Trash2 size={18} />
+                Remove from Faculty
+              </button>
+            )}
           </div>
         )}
       </Modal>

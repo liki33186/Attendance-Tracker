@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { collection, query, where, getDocs, addDoc, serverTimestamp, setDoc, doc, deleteDoc } from 'firebase/firestore';
-import { db } from '../lib/firebase';
+import { doc, deleteDoc, writeBatch, collection, query, where, getDocs, addDoc, serverTimestamp, setDoc } from 'firebase/firestore';
+import { db, handleFirestoreError, OperationType } from '../lib/firebase';
 import { useAuth } from '../hooks/useAuth';
 import { Search, Plus, FileUp, GraduationCap, Loader2, Trash2, Mail, Hash, BookOpen } from 'lucide-react';
 import Modal from '../components/Modal';
@@ -22,6 +22,7 @@ export default function Students() {
   });
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
 
   useEffect(() => {
     fetchStudents();
@@ -105,15 +106,26 @@ export default function Students() {
   };
 
   const handleDeleteStudent = async (studentId: string) => {
-    if (!window.confirm('Are you sure you want to delete this student record?')) return;
-    
+    setSubmitting(true);
     try {
-      await deleteDoc(doc(db, 'users', studentId));
-      await deleteDoc(doc(db, 'students', studentId));
+      const batch = writeBatch(db);
+      
+      batch.delete(doc(db, 'users', studentId));
+      batch.delete(doc(db, 'students', studentId));
+      
+      // Also cleanup attendance for this student
+      const attQ = query(collection(db, 'attendance'), where('studentId', '==', studentId));
+      const attSnap = await getDocs(attQ);
+      attSnap.docs.forEach(d => batch.delete(d.ref));
+      
+      await batch.commit();
+      setDeleteConfirmId(null);
       fetchStudents();
-    } catch (err) {
-      console.error(err);
-      alert('Failed to delete student.');
+    } catch (err: any) {
+      console.error('Delete error:', err);
+      handleFirestoreError(err, OperationType.DELETE, `users/${studentId}`);
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -202,12 +214,33 @@ export default function Students() {
                           View
                         </button>
                         {currentUser?.role === 'admin' && (
-                          <button 
-                            onClick={() => handleDeleteStudent(s.id)}
-                            className="p-1.5 text-red-400 hover:bg-red-50 hover:text-red-600 rounded-lg transition-colors"
-                          >
-                            <Trash2 size={16} />
-                          </button>
+                          <div className="flex items-center gap-1">
+                            {deleteConfirmId === s.id ? (
+                              <div className="flex items-center gap-1 animate-in fade-in slide-in-from-right-2">
+                                <button 
+                                  onClick={() => handleDeleteStudent(s.id)}
+                                  disabled={submitting}
+                                  className="px-2 py-1 bg-red-600 text-white text-[10px] font-bold rounded-lg hover:bg-red-700 transition-colors"
+                                >
+                                  Confirm
+                                </button>
+                                <button 
+                                  onClick={() => setDeleteConfirmId(null)}
+                                  className="px-2 py-1 bg-slate-200 text-slate-600 text-[10px] font-bold rounded-lg hover:bg-slate-300 transition-colors"
+                                >
+                                  Cancel
+                                </button>
+                              </div>
+                            ) : (
+                              <button 
+                                onClick={() => setDeleteConfirmId(s.id)}
+                                disabled={submitting}
+                                className="p-1.5 text-red-400 hover:bg-red-50 hover:text-red-600 rounded-lg transition-colors disabled:opacity-50"
+                              >
+                                <Trash2 size={16} />
+                              </button>
+                            )}
+                          </div>
                         )}
                       </div>
                     </td>

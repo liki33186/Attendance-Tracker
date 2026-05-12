@@ -42,8 +42,11 @@ export default function StudentDashboard() {
 
       // Calculate subject-wise attendance
       const subjectMap = allRecords.reduce((acc: any, rec: any) => {
+        const classInfo = classesMap[rec.classId];
+        if (!classInfo) return acc; // Skip orphaned records for deleted classes
+        
         if (!acc[rec.classId]) {
-          acc[rec.classId] = { present: 0, total: 0, name: classesMap[rec.classId]?.name || 'Unknown Class' };
+          acc[rec.classId] = { present: 0, total: 0, name: classInfo.name };
         }
         acc[rec.classId].total += 1;
         if (rec.status === 'present') acc[rec.classId].present += 1;
@@ -53,7 +56,7 @@ export default function StudentDashboard() {
       const subjectList = Object.entries(subjectMap).map(([id, data]: [string, any]) => ({
         id,
         ...data,
-        percentage: Math.round((data.present / data.total) * 100)
+        percentage: Number(((data.present / data.total) * 100).toFixed(1))
       }));
       setSubjectAttendance(subjectList);
     };
