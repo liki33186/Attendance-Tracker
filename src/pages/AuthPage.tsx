@@ -16,8 +16,10 @@ export default function AuthPage() {
     try {
       await login();
     } catch (error: any) {
-      console.error(error);
-      setError('Google login failed.');
+      if (error?.code !== 'auth/popup-closed-by-user') {
+        console.error(error);
+        setError('Google login failed.');
+      }
     } finally {
       setLoading(false);
     }
